@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>我が家の献立帳</title>
+    <style>
+        :root { 
+            --main: #f8a5c2;
+            --accent: #e95464;
+            --bg: #fffaf0;
+            --green: #78e08f;
+            --text: #444; 
+            --warn: #fff3cd;
+        }
+        body { 
+            font-family: sans-serif;
+            background: var(--bg); 
+            margin: 0; 
+            padding-bottom: 90px; 
+            color: var(--text);
+        }
+        .header { 
+            background: white; 
+            padding: 15px; 
+            text-align: center; 
+            border-bottom: 3px solid var(--main); 
+            position: sticky; 
+            top: 0; 
+            z-index: 100; 
+            font-weight: bold; 
+            font-size: 1.1rem;
+            color: var(--main);
+        }
+        .page { display: none; padding: 15px; }
+        .active { display: block; }
+
+        .tab-group { display: flex; gap: 10px; margin-bottom: 15px; }
+        .tab { flex: 1; padding: 10px; background: #ffeef2; color: var(--main); text-align: center; border-radius: 12px; font-size: 0.9rem; cursor: pointer; border: 1px solid var(--main); }
+        .tab.active { background: var(--main); color: white; font-weight: bold; }
+
+        .date-setup { background: white; padding: 15px; border-radius: 15px; margin-bottom: 15px; border: 1px dashed var(--main); }
+        
+        .day-card { background: white; padding: 15px; margin-bottom: 10px; border-radius: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); border-left: 6px solid var(--main); }
+        .duplicate { background-color: var(--warn) !important; border-left-color: #ffa500 !important; }
+        
+        .day-header { display: flex; justify-content: space-between; margin-bottom: 8px; font-weight: bold; font-size: 0.9rem; }
+        .day-date { font-size: 0.75rem; color: #888; font-weight: normal; }
+
+        .dish-tag { background: #fff9fa; padding: 10px; border-radius: 12px; font-size: 0.85rem; border: 1px solid #ffeef2; width: 100%; box-sizing: border-box; display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+        .genre-badge { background: var(--main); color: white; padding: 2px 6px; border-radius: 6px; font-size: 0.65rem; margin-right: 5px; }
+        .ing-text { color: #777; font-size: 0.75rem; }
+        .dish-del { color: #ccc; font-weight: bold; cursor: pointer; padding: 0 5px; font-size: 1.1rem; }
+
+        .btn-group { display: flex; gap: 5px; margin-top: 8px; }
+        .btn-sm { flex: 1; padding: 8px; font-size: 0.75rem; border-radius: 8px; border: 1px solid var(--main); background: white; color: var(--main); cursor: pointer; }
+        
+        .btn { background: var(--main); color: white; border: none; padding: 12px; border-radius: 12px; width: 100%; font-size: 1rem; cursor: pointer; font-weight: bold; }
+        .card { background: white; padding: 15px; border-radius: 15px; margin-bottom: 15px; border: 1px solid #ddd; }
+        input, select { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #eee; border-radius: 10px; font-size: 16px; box-sizing: border-box; }
+
+        .btn-sub { background: #fffcfd; color: var(--text); margin-top: 5px; border: 1px solid #ffeef2; text-align: left; width: 100%; padding: 12px; border-radius: 12px; }
+
+        .nav { position: fixed; bottom: 0; width: 100%; background: white; display: flex; border-top: 1px solid #ffeef2; height: 65px; z-index: 150; }
+        .nav-item { flex: 1; text-align: center; padding: 10px; font-size: 11px; color: #bbb; cursor: pointer; }
+        .nav-item.active { color: var(--main); font-weight: bold; }
+
+        #search-overlay { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:200; }
+        .modal-content { background:white; margin:10% auto; width:95%; max-height:85%; border-radius:20px; padding:20px; overflow-y:auto; box-sizing: border-box; }
+        
+        h3 { color: var(--main); margin-top: 0; font-size: 1.1rem; }
+        .history-week-item { background: white; border-radius: 12px; margin-bottom: 8px; overflow: hidden; border: 1px solid #eee; }
+        .history-header { background: #fdf0f5; padding: 12px; font-weight: bold; display: flex; justify-content: space-between; font-size: 0.9rem; cursor: pointer; }
+        .history-content { display: none; padding: 10px; background: white; font-size: 0.85rem; line-height: 1.6; }
+
+        /* 同期状態表示 */
+        .sync-status { text-align: center; font-size: 0.75rem; padding: 4px; }
+        .sync-ok { color: #4caf50; }
+        .sync-err { color: #e95464; }
+        .sync-ing { color: #f8a5c2; }
+
+        .loading { text-align: center; padding: 30px; color: var(--main); font-size: 0.9rem; }
+    </style>
+</head>
+<body>
+
+<div class="header">🍲 我が家の献立帳 <span id="sync-indicator" class="sync-status sync-ing">同期中...</span></div>
+
+<!-- 献立シート -->
+<div id="page-home" class="page active">
+    <div class="tab-group">
+        <div id="tab-this" class="tab active" onclick="switchWeek('this')">今週</div>
+        <div id="tab-next" class="tab" onclick="switchWeek('next')">来週</div>
+    </div>
+    <div class="date-setup">
+        <label>📅 月曜日の日付を選択：</label>
+        <input type="date" id="week-monday-input" onchange="updateWeekStartDate()">
+    </div>
+    <div id="weekly-list"><div class="loading">データを読み込み中...🌸</div></div>
+    <button class="btn" style="background:#4caf50; margin-top:10px;" onclick="handleWeekCycle()">今週を履歴へ ＆ 来週を今週へ</button>
+</div>
+
+<!-- 登録シート -->
+<div id="page-add" class="page">
+    <div class="card">
+        <h3>✨ 1品を登録</h3>
+        <select id="newDishGenre">
+            <option value="肉">肉料理</option>
+            <option value="魚">魚料理</option>
+            <option value="サラダ">サラダ・副菜</option>
+            <option value="丼">丼もの</option>
+            <option value="麺">麺類</option>
+            <option value="その他">その他</option>
+        </select>
+        <input type="text" id="newDishName" placeholder="料理名（例：ハンバーグ）">
+        <input type="text" id="newDishIng" placeholder="使う食材（、で区切る）">
+        <button class="btn" onclick="saveDish()">保存</button>
+    </div>
+    <div class="card" style="border: 2px solid var(--main);">
+        <h3>🍱 セットを作る</h3>
+        <input type="text" id="setSearchInput" placeholder="料理を検索して追加..." oninput="filterSetBuilder()">
+        <div id="set-builder-results" style="max-height:150px; overflow-y:auto; border:1px solid #eee; margin-bottom:10px;"></div>
+        <div id="set-builder-tags" style="padding:10px; background:#f9f9f9; border-radius:8px; display:flex; flex-wrap:wrap; gap:5px;"></div>
+        <button class="btn" style="background:var(--accent); margin-top:5px;" onclick="saveSet()">セットとして保存</button>
+    </div>
+</div>
+
+<!-- 一覧シート -->
+<div id="page-list" class="page">
+    <h3>📖 お品書き一覧</h3>
+    <div class="card">
+        <h4>🍱 セット</h4>
+        <input type="text" id="listSearchSet" placeholder="セット名で検索..." oninput="renderFullList()">
+        <div id="full-menu-sets"></div>
+    </div>
+    <div class="card">
+        <h4>🍳 単品</h4>
+        <input type="text" id="listSearchSingle" placeholder="名前・ジャンル・食材で検索..." oninput="renderFullList()">
+        <div id="full-menu-dishes"></div>
+    </div>
+</div>
+
+<!-- 履歴シート -->
+<div id="page-history" class="page">
+    <h3>📜 歴代の記録</h3>
+    <div id="history-accordion"></div>
+</div>
+
+<!-- 検索モーダル -->
+<div id="search-overlay">
+    <div class="modal-content">
+        <div style="display:flex; justify-content: space-between; align-items: center; margin-bottom:10px;">
+            <h3 id="modal-title">追加</h3>
+            <button onclick="closeSearch()" style="border:none; background:none; font-size:24px;">×</button>
+        </div>
+        <input type="text" id="modalSearchInput" placeholder="名前・ジャンル・食材で検索..." oninput="filterModal()">
+        <div id="modal-results"></div>
+    </div>
+</div>
+
+<nav class="nav">
+    <div class="nav-item active" onclick="showPage('home', this)">📅献立</div>
+    <div class="nav-item" onclick="showPage('add', this)">➕登録</div>
+    <div class="nav-item" onclick="showPage('list', this)">📖一覧</div>
+    <div class="nav-item" onclick="showPage('history', this)">📜履歴</div>
+</nav>
+
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-app.js";
+    import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-firestore.js";
+
+    const firebaseConfig = {
+        apiKey: "AIzaSyCx_WRn1mQR9hB8UwVLT35EA-Wp417ep6w",
+        authDomain: "otamesi-a3558.firebaseapp.com",
+        projectId: "otamesi-a3558",
+        storageBucket: "otamesi-a3558.firebasestorage.app",
+        messagingSenderId: "307375265218",
+        appId: "1:307375265218:web:df5c19f018df2e499ff25b"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const firestore = getFirestore(app);
+
+    // デフォルトデータ
+    let db = { dishes: [], sets: [] };
+    let weeklyData = {
+        this: { start: "", menus: Array(7).fill(null).map(() => []) },
+        next: { start: "", menus: Array(7).fill(null).map(() => []) }
+    };
+    let historyData = [];
+    let currentViewWeek = 'this', activeDayIdx = null, searchMode = 'single', tempSetItems = [];
+    const days = ["月", "火", "水", "木", "金", "土", "日"];
+
+    function setSyncStatus(status) {
+        const el = document.getElementById('sync-indicator');
+        if(status === 'ok') { el.textContent = '✅ 同期済み'; el.className = 'sync-status sync-ok'; }
+        else if(status === 'err') { el.textContent = '❌ 同期エラー'; el.className = 'sync-status sync-err'; }
+        else { el.textContent = '🔄 同期中...'; el.className = 'sync-status sync-ing'; }
+    }
+
+    // Firebaseへ保存（配列の中の配列をFirestore対応に変換）
+    function flattenWeekly(data) {
+        const result = {};
+        ['this', 'next'].forEach(week => {
+            result[week] = {
+                start: data[week].start,
+                menus: data[week].menus.map((day, i) => ({ [`day${i}`]: day.join('|||') }))
+            };
+        });
+        return result;
+    }
+
+    function unflattenWeekly(data) {
+        const result = {};
+        ['this', 'next'].forEach(week => {
+            result[week] = {
+                start: data[week].start,
+                menus: data[week].menus.map((dayObj, i) => {
+                    const val = dayObj[`day${i}`];
+                    return val ? val.split('|||').filter(v => v) : [];
+                })
+            };
+        });
+        return result;
+    }
+
+    function flattenHistory(data) {
+        return data.map(w => ({
+            period: w.period,
+            details: w.details.map(d => ({ day: d.day, items: d.items.join('|||') }))
+        }));
+    }
+
+    function unflattenHistory(data) {
+        return data.map(w => ({
+            period: w.period,
+            details: w.details.map(d => ({ day: d.day, items: d.items ? d.items.split('|||').filter(v => v) : [] }))
+        }));
+    }
+
+    async function saveData() {
+        setSyncStatus('ing');
+        try {
+            await setDoc(doc(firestore, 'kondate', 'main'), {
+                db,
+                weeklyData: flattenWeekly(weeklyData),
+                historyData: flattenHistory(historyData)
+            });
+            setSyncStatus('ok');
+        } catch(e) {
+            console.error(e);
+            setSyncStatus('err');
+        }
+    }
+
+    // リアルタイム同期（相手が変更したら自動反映）
+    onSnapshot(doc(firestore, 'kondate', 'main'), (snapshot) => {
+        if(snapshot.exists()) {
+            const data = snapshot.data();
+            db = data.db || { dishes: [], sets: [] };
+            weeklyData = data.weeklyData ? unflattenWeekly(data.weeklyData) : {
+                this: { start: "", menus: Array(7).fill(null).map(() => []) },
+                next: { start: "", menus: Array(7).fill(null).map(() => []) }
+            };
+            historyData = data.historyData ? unflattenHistory(data.historyData) : [];
+            setSyncStatus('ok');
+            // 現在表示中のページを更新
+            const activePage = document.querySelector('.page.active');
+            if(activePage) {
+                const id = activePage.id;
+                if(id === 'page-home') renderWeekly();
+                if(id === 'page-list') renderFullList();
+                if(id === 'page-history') renderHistoryAccordion();
+            }
+        } else {
+            setSyncStatus('ok');
+            renderWeekly();
+        }
+    }, (error) => {
+        console.error(error);
+        setSyncStatus('err');
+    });
+
+    function searchDishes(query) {
+        const q = (query || "").toLowerCase().trim();
+        if (!q) return db.dishes;
+        return db.dishes.filter(d => {
+            const nameMatch = (d.name || "").toLowerCase().includes(q);
+            const genreMatch = (d.genre || "").toLowerCase().includes(q);
+            const ingMatch = (d.ing || []).some(i => i.toLowerCase().includes(q));
+            return nameMatch || genreMatch || ingMatch;
+        });
+    }
+
+    function showPage(p, el) {
+        document.querySelectorAll('.page').forEach(page => page.classList.remove('active'));
+        document.getElementById('page-' + p).classList.add('active');
+        document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+        el.classList.add('active');
+        if(p === 'home') renderWeekly();
+        if(p === 'list') renderFullList();
+        if(p === 'history') renderHistoryAccordion();
+    }
+    window.showPage = showPage;
+
+    function switchWeek(week) {
+        currentViewWeek = week;
+        document.getElementById('tab-this').classList.toggle('active', week === 'this');
+        document.getElementById('tab-next').classList.toggle('active', week === 'next');
+        renderWeekly();
+    }
+    window.switchWeek = switchWeek;
+
+    function updateWeekStartDate() {
+        const input = document.getElementById('week-monday-input').value;
+        if(!input) return;
+        const d = new Date(input);
+        const day = d.getDay();
+        const diff = d.getDate() - day + (day == 0 ? -6 : 1);
+        const monday = new Date(d.setDate(diff));
+        weeklyData[currentViewWeek].start = monday.toISOString().split('T')[0];
+        saveData(); renderWeekly();
+    }
+    window.updateWeekStartDate = updateWeekStartDate;
+
+    function renderWeekly() {
+        const week = weeklyData[currentViewWeek];
+        document.getElementById('week-monday-input').value = week.start;
+        const allInWeek = week.menus.flat();
+        document.getElementById('weekly-list').innerHTML = days.map((d, i) => {
+            const isDup = week.menus[i].some(name => allInWeek.filter(x=>x===name).length > 1);
+            let dateLabel = "";
+            if(week.start){
+                const obj = new Date(week.start); obj.setDate(obj.getDate()+i);
+                dateLabel = `<span class="day-date">${obj.getMonth()+1}/${obj.getDate()}</span>`;
+            }
+            return `
+            <div class="day-card ${isDup?'duplicate':''}">
+                <div class="day-header"><span>${d}曜日 ${dateLabel}</span><span style="color:#999;font-size:0.7rem;cursor:pointer;" onclick="clearDay(${i})">クリア</span></div>
+                <div class="menu-slot">${week.menus[i].map((name, idx) => {
+                    const data = db.dishes.find(x=>x.name===name) || {genre:'？', ing:[]};
+                    return `<div class="dish-tag"><span><span class="genre-badge">${data.genre}</span><b>${name}</b><br><small class="ing-text">${(data.ing || []).join('、')}</small></span><span class="dish-del" onclick="removeOneDish(${i}, ${idx})">×</span></div>`;
+                }).join('')}</div>
+                <div class="btn-group"><button class="btn-sm" onclick="openSearch(${i}, 'single')">＋1品</button><button class="btn-sm" onclick="openSearch(${i}, 'set')">＋セット</button></div>
+            </div>`;
+        }).join('');
+    }
+
+    function openSearch(dayIdx, mode) {
+        activeDayIdx = dayIdx; searchMode = mode;
+        document.getElementById('modal-title').innerText = mode==='single'?'単品を追加':'セットを追加';
+        document.getElementById('modalSearchInput').value = "";
+        document.getElementById('search-overlay').style.display = 'block';
+        filterModal();
+    }
+    window.openSearch = openSearch;
+
+    function filterModal() {
+        const q = document.getElementById('modalSearchInput').value;
+        const res = document.getElementById('modal-results');
+        res.innerHTML = "";
+        if(searchMode === 'single') {
+            searchDishes(q).forEach(d => {
+                res.innerHTML += `<div class="btn-sub" onclick="addMenu('${d.name}', false)"><span class="genre-badge">${d.genre}</span><b>${d.name}</b><br><small class="ing-text">${(d.ing || []).join('、')}</small></div>`;
+            });
+        } else {
+            const sq = q.toLowerCase();
+            db.sets.filter(s => s.name.toLowerCase().includes(sq)).forEach(s => {
+                res.innerHTML += `<div class="btn-sub" onclick="addMenu('${s.name}', true)"><b>🍱 ${s.name}</b><br><small>${s.items.join(' / ')}</small></div>`;
+            });
+        }
+    }
+    window.filterModal = filterModal;
+
+    function addMenu(name, isSet) {
+        if(isSet) { 
+            const targetSet = db.sets.find(s=>s.name===name);
+            if(targetSet) weeklyData[currentViewWeek].menus[activeDayIdx].push(...targetSet.items); 
+        }
+        else { weeklyData[currentViewWeek].menus[activeDayIdx].push(name); }
+        saveData(); closeSearch(); renderWeekly();
+    }
+    window.addMenu = addMenu;
+
+    function renderFullList() {
+        const sq = document.getElementById('listSearchSingle').value;
+        const tq = (document.getElementById('listSearchSet').value || "").toLowerCase();
+        
+        document.getElementById('full-menu-sets').innerHTML = db.sets
+            .filter(s => s.name.toLowerCase().includes(tq))
+            .map(s => `<div class="btn-sub"><small style="color:var(--accent);float:right;cursor:pointer" onclick="deleteSetByName('${s.name}')">削除</small><b>${s.name}</b><br><small>${s.items.join('、')}</small></div>`)
+            .join('');
+
+        document.getElementById('full-menu-dishes').innerHTML = searchDishes(sq)
+            .map(d => `<div class="btn-sub"><small style="color:var(--accent);float:right;cursor:pointer" onclick="deleteMasterByName('${d.name}')">削除</small><span class="genre-badge">${d.genre}</span><b>${d.name}</b><br><small class="ing-text">${(d.ing || []).join('、')}</small></div>`)
+            .join('');
+    }
+    window.renderFullList = renderFullList;
+
+    function filterSetBuilder() {
+        const q = document.getElementById('setSearchInput').value;
+        const res = document.getElementById('set-builder-results');
+        res.innerHTML = q ? searchDishes(q).map(d => `<div class="btn-sub" onclick="addToTempSet('${d.name}')"><span class="genre-badge">${d.genre}</span>${d.name} ＋</div>`).join('') : "";
+    }
+    window.filterSetBuilder = filterSetBuilder;
+
+    function handleWeekCycle() {
+        if(!confirm("今週を履歴へ移動し、来週を今週へ移動しますか？")) return;
+        if(weeklyData.this.start) {
+            const detail = days.map((d, i) => ({ day: d, items: weeklyData.this.menus[i] }));
+            historyData.unshift({ period: weeklyData.this.start + " の週", details: detail });
+        }
+        weeklyData.this = JSON.parse(JSON.stringify(weeklyData.next));
+        weeklyData.next = { start: "", menus: Array(7).fill(null).map(() => []) };
+        saveData(); switchWeek('this'); alert("移動しました");
+    }
+    window.handleWeekCycle = handleWeekCycle;
+
+    function renderHistoryAccordion() {
+        document.getElementById('history-accordion').innerHTML = historyData.map((w, idx) => `
+            <div class="history-week-item">
+                <div class="history-header" onclick="toggleAcc(${idx})"><span>記録：${w.period || '日付不明'}</span><span>▼</span></div>
+                <div id="acc-${idx}" class="history-content">
+                    ${w.details.map(d=>`<div><b>${d.day}曜日</b>: ${d.items.join('、')||'--'}</div>`).join('')}
+                    <button onclick="deleteHistory(${idx})" style="color:red;border:none;background:none;margin-top:10px;cursor:pointer;">× この履歴を削除</button>
+                </div>
+            </div>`).join('');
+    }
+    window.renderHistoryAccordion = renderHistoryAccordion;
+
+    function toggleAcc(i) { const e = document.getElementById(`acc-${i}`); e.style.display = e.style.display==='block'?'none':'block'; }
+    window.toggleAcc = toggleAcc;
+
+    function deleteHistory(idx) { historyData.splice(idx,1); saveData(); renderHistoryAccordion(); }
+    window.deleteHistory = deleteHistory;
+
+    function saveDish() {
+        const n = document.getElementById('newDishName').value, g = document.getElementById('newDishGenre').value, i = document.getElementById('newDishIng').value;
+        if(!n) return alert("料理名を入力してください"); 
+        db.dishes.push({genre:g, name:n, ing:i.split(/[、, ]/).filter(v=>v)});
+        saveData(); alert("保存しました"); 
+        document.getElementById('newDishName').value = ""; document.getElementById('newDishIng').value = "";
+    }
+    window.saveDish = saveDish;
+
+    function deleteMasterByName(name) { 
+        if(confirm(name + " を削除しますか？")) { 
+            db.dishes = db.dishes.filter(d => d.name !== name); 
+            saveData(); renderFullList(); 
+        } 
+    }
+    window.deleteMasterByName = deleteMasterByName;
+
+    function deleteSetByName(name) {
+        if(confirm("セット「" + name + "」を削除しますか？")) {
+            db.sets = db.sets.filter(s => s.name !== name);
+            saveData(); renderFullList();
+        }
+    }
+    window.deleteSetByName = deleteSetByName;
+
+    function addToTempSet(n) { tempSetItems.push(n); renderTempTags(); }
+    window.addToTempSet = addToTempSet;
+
+    function removeTempItem(i) { tempSetItems.splice(i, 1); renderTempTags(); }
+    window.removeTempItem = removeTempItem;
+    function renderTempTags() { document.getElementById('set-builder-tags').innerHTML = tempSetItems.map((n, i) => `<div class="dish-tag" style="width:auto; margin:2px;">${n}<span style="margin-left:8px;cursor:pointer;color:var(--accent)" onclick="removeTempItem(${i})">×</span></div>`).join(''); }
+    window.renderTempTags = renderTempTags;
+
+    function saveSet() {
+        if(tempSetItems.length === 0) return alert("料理を選択してください");
+        const name = prompt("セット名を入力してください", tempSetItems.join('＆')); 
+        if(!name) return;
+        db.sets.push({name, items: [...tempSetItems]}); saveData(); tempSetItems = []; renderTempTags(); alert("保存しました");
+    }
+    window.saveSet = saveSet;
+
+    function removeOneDish(dIdx, mIdx) { weeklyData[currentViewWeek].menus[dIdx].splice(mIdx,1); saveData(); renderWeekly(); }
+    window.removeOneDish = removeOneDish;
+
+    function clearDay(i) { if(confirm("この日の献立をクリアしますか？")) { weeklyData[currentViewWeek].menus[i] = []; saveData(); renderWeekly(); } }
+    window.clearDay = clearDay;
+
+    function closeSearch() { document.getElementById('search-overlay').style.display = 'none'; }
+    window.closeSearch = closeSearch;
+
+</script>
+</body>
+</html>
